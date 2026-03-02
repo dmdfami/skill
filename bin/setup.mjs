@@ -286,13 +286,24 @@ async function main() {
   log("  [1] CK Official        — requires gh auth login with CK account");
   log("  [2] CK mirror          — access code required, CK skills only");
   log("  [3] Full skill pack    — access code required, CK + custom skills");
-  log("  [4] Full skill pack    — merge only (add missing, keep existing)");
   log("");
 
   const methodChoice = await ask("Choose [3]: ");
   const method = parseInt(methodChoice || "3", 10);
 
-  // 3. Execute per target
+  // 3. Merge mode (for options 2 & 3)
+  let mergeOnly = false;
+  if (method === 2 || method === 3) {
+    log("");
+    log("Install mode:");
+    log("  [1] Overwrite all      — replace everything with latest");
+    log("  [2] Merge only         — add missing, keep existing");
+    log("");
+    const modeChoice = await ask("Choose [1]: ");
+    mergeOnly = parseInt(modeChoice || "1", 10) === 2;
+  }
+
+  // 4. Execute per target
   for (const target of targets) {
     log(`\n${"─".repeat(44)}`);
     log(`  Target: ${target.name}`);
@@ -305,13 +316,10 @@ async function main() {
         success = await installCKOfficial(target.dir);
         break;
       case 2:
-        success = await installFromWorker(target.dir, "download/ck", false);
+        success = await installFromWorker(target.dir, "download/ck", mergeOnly);
         break;
       case 3:
-        success = await installFromWorker(target.dir, "download/custom", false);
-        break;
-      case 4:
-        success = await installFromWorker(target.dir, "download/custom", true);
+        success = await installFromWorker(target.dir, "download/custom", mergeOnly);
         break;
       default:
         err("Invalid choice.");
