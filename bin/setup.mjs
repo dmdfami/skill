@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { execSync } from "node:child_process";
 import { existsSync, mkdirSync, cpSync, readdirSync, readFileSync, writeFileSync, createWriteStream } from "node:fs";
-import { homedir, tmpdir, platform } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { get as httpsGet } from "node:https";
@@ -26,10 +26,10 @@ const run = (cmd, opts = {}) => {
 };
 
 const log = (msg) => console.log(msg);
-const ok = (msg) => console.log(`\u2705 ${msg}`);
-const info = (msg) => console.log(`\ud83d\udce6 ${msg}`);
-const warn = (msg) => console.log(`\u26a0\ufe0f  ${msg}`);
-const err = (msg) => console.log(`\u274c ${msg}`);
+const ok = (msg) => console.log(`  OK  ${msg}`);
+const info = (msg) => console.log(`  >>  ${msg}`);
+const warn = (msg) => console.log(`  !!  ${msg}`);
+const err = (msg) => console.log(`  XX  ${msg}`);
 
 function fetch(url, headers = {}) {
   return new Promise((resolve, reject) => {
@@ -68,7 +68,7 @@ function downloadFile(url, dest, headers = {}) {
       if (res.statusCode !== 200) {
         const chunks = [];
         res.on("data", (c) => chunks.push(c));
-        res.on("end", () => reject(new Error(Buffer.concat(chunks).toString())));
+        res.on("end", () => reject(new Error(`HTTP ${res.statusCode}: ${Buffer.concat(chunks).toString()}`)));
         return;
       }
       const stream = createWriteStream(dest);
@@ -87,32 +87,23 @@ function countItems(dir) {
 
 // ─── Platform Detection ────────────────────────────────────────
 function detectPlatforms() {
-  const platforms = [];
   const home = homedir();
+  const platforms = [];
 
-  // Claude Code CLI
   const claudeDir = join(home, ".claude");
-  if (existsSync(claudeDir)) {
-    platforms.push({ name: "Claude Code", dir: claudeDir, detected: true });
-  } else {
-    platforms.push({ name: "Claude Code", dir: claudeDir, detected: false });
-  }
+  platforms.push({ name: "Claude Code", dir: claudeDir, detected: existsSync(claudeDir) });
 
-  // Codex CLI (OpenAI) — check common locations
   const codexPaths = [
     join(home, ".codex"),
     join(home, ".config", "codex"),
     join(home, "AppData", "Roaming", "codex"),
   ];
+  let codexDir = join(home, ".codex");
+  let codexDetected = false;
   for (const p of codexPaths) {
-    if (existsSync(p)) {
-      platforms.push({ name: "Codex CLI", dir: p, detected: true });
-      break;
-    }
+    if (existsSync(p)) { codexDir = p; codexDetected = true; break; }
   }
-  if (!platforms.find((p) => p.name === "Codex CLI")) {
-    platforms.push({ name: "Codex CLI", dir: join(home, ".codex"), detected: false });
-  }
+  platforms.push({ name: "Codex CLI", dir: codexDir, detected: codexDetected });
 
   return platforms;
 }
@@ -121,11 +112,9 @@ function detectPlatforms() {
 
 async function installCKOfficial(targetDir) {
   log("");
-  info("Option 1: CK Official Install");
-  log("  Requires: gh auth login (GitHub account with CK access)");
+  info("CK Official Install — requires gh auth login with CK account");
   log("");
 
-  // Check gh
   const ghVersion = run("gh --version");
   if (!ghVersion) {
     err("GitHub CLI (gh) not found. Install: https://cli.github.com/");
@@ -133,7 +122,6 @@ async function installCKOfficial(targetDir) {
   }
   ok(`GitHub CLI: ${ghVersion.split("\n")[0]}`);
 
-  // Check auth
   const ghAuth = run("gh auth status 2>&1");
   if (!ghAuth || ghAuth.includes("not logged")) {
     err("Not authenticated. Run: gh auth login");
@@ -141,37 +129,24 @@ async function installCKOfficial(targetDir) {
   }
   ok("GitHub authenticated");
 
-  // Check/install ck CLI
-  const ckVersion = run("ck --version 2>/dev/null");
-  if (ckVersion) {
-    ok(`claudekit-cli ${ckVersion}`);
-  } else {
-    info("Installing claudekit-cli...");
-    run("npm install -g claudekit-cli", { stdio: "inherit" });
-  }
-
-  // Clone each kit
   mkdirSync(targetDir, { recursive: true });
+
   for (const { name: kit, repo } of CK_KITS) {
     log("");
     info(`Fetching ${kit} kit...`);
 
-    // Get latest tag
     const tagsRaw = run(`gh api repos/${repo}/tags --jq '.[0].name' 2>/dev/null`);
     const release = tagsRaw || "main";
     info(`Version: ${release}`);
 
-    // Clone to temp
     const tmpClone = join(tmpdir(), `ck-${kit}-${Date.now()}`);
-    const cloneCmd = `gh repo clone ${repo} "${tmpClone}" -- --depth=1 --branch ${release}`;
-    const result = run(cloneCmd, { timeout: 120000 });
+    run(`gh repo clone ${repo} "${tmpClone}" -- --depth=1 --branch ${release}`, { timeout: 120000 });
 
-    if (result === null && !existsSync(join(tmpClone, ".claude"))) {
-      warn(`${kit} clone failed. Check GitHub access.`);
+    if (!existsSync(join(tmpClone, ".claude"))) {
+      warn(`${kit} clone failed — check GitHub access.`);
       continue;
     }
 
-    // Copy kit directories
     const kitSource = join(tmpClone, ".claude");
     let copied = 0;
     for (const dir of KIT_DIRS) {
@@ -185,15 +160,14 @@ async function installCKOfficial(targetDir) {
     }
 
     run(`rm -rf "${tmpClone}"`);
-    ok(`${kit} kit ${release} (${copied} directories)`);
+    ok(`${kit} kit ${release} (${copied} dirs)`);
   }
 
   return true;
 }
 
-async function installFromR2(targetDir, mergeOnly) {
-  log("");
-  info("Option 2: Private Download");
+// Shared download+extract logic for Options 2, 3, 4
+async function installFromWorker(targetDir, endpoint, mergeOnly) {
   log("");
 
   const code = await ask("  Access code: ");
@@ -203,39 +177,24 @@ async function installFromR2(targetDir, mergeOnly) {
   }
 
   // Check remote version
-  info("Checking version...");
-  let remoteVersion;
+  const packName = endpoint.split("/").pop(); // "ck" or "custom"
+  info(`Checking version (${packName})...`);
   try {
-    const res = await fetch(`${WORKER_URL}/version`);
-    remoteVersion = JSON.parse(res.body);
-    log(`  Remote: v${remoteVersion.version} (${remoteVersion.skills} skills)`);
+    const res = await fetch(`${WORKER_URL}/version/${packName}`);
+    if (res.status === 200) {
+      const v = JSON.parse(res.body);
+      log(`  Remote: ${v.sha || "?"} — ${v.message || ""} (${v.updatedAt || ""})`);
+    }
   } catch {
-    err("Cannot reach server.");
-    return false;
+    warn("Could not fetch version info — continuing anyway.");
   }
 
-  // Check local version
-  const localVersionFile = join(targetDir, ".skill-version");
-  let localVersion = "0.0.0";
-  if (existsSync(localVersionFile)) {
-    localVersion = readFileSync(localVersionFile, "utf8").trim();
-    log(`  Local:  v${localVersion}`);
-  } else {
-    log("  Local:  not installed");
-  }
-
-  if (localVersion === remoteVersion.version) {
-    ok("Already up to date.");
-    const ans = await ask("  Force reinstall? [y/N] ");
-    if (ans.toLowerCase() !== "y") return true;
-  }
-
-  // Download
+  // Download tarball
   info("Downloading...");
   const tarFile = join(tmpdir(), `skill-${Date.now()}.tar.gz`);
   try {
     await downloadFile(
-      `${WORKER_URL}/download?key=${encodeURIComponent(code.trim())}`,
+      `${WORKER_URL}/${endpoint}?key=${encodeURIComponent(code.trim())}`,
       tarFile,
     );
   } catch (e) {
@@ -246,20 +205,18 @@ async function installFromR2(targetDir, mergeOnly) {
   const fileSize = run(`du -h "${tarFile}"`)?.split("\t")[0] || "?";
   ok(`Downloaded (${fileSize})`);
 
-  // Extract
+  // Extract — GitHub tarball has a top-level dir (repo-sha/), strip it
   mkdirSync(targetDir, { recursive: true });
   const extractDir = join(tmpdir(), `skill-extract-${Date.now()}`);
   mkdirSync(extractDir, { recursive: true });
 
-  run(`tar xzf "${tarFile}" -C "${extractDir}"`);
+  // --strip-components=1 removes the GitHub-generated top-level dir
+  run(`tar xzf "${tarFile}" -C "${extractDir}" --strip-components=1`);
 
-  // Count before install
   const beforeSkills = countItems(join(targetDir, "skills"));
   const beforeAgents = countItems(join(targetDir, "agents"));
 
-  // Copy/merge
   let newCount = 0;
-  let updatedCount = 0;
 
   for (const dir of KIT_DIRS) {
     const src = join(extractDir, dir);
@@ -269,39 +226,29 @@ async function installFromR2(targetDir, mergeOnly) {
     mkdirSync(dest, { recursive: true });
 
     if (mergeOnly) {
-      // Only copy items that don't exist locally
       const items = readdirSync(src, { withFileTypes: true });
       for (const item of items) {
         const destItem = join(dest, item.name);
         if (!existsSync(destItem)) {
-          const srcItem = join(src, item.name);
-          cpSync(srcItem, destItem, { recursive: true });
+          cpSync(join(src, item.name), destItem, { recursive: true });
           newCount++;
         }
       }
     } else {
-      // Full overwrite
       cpSync(src, dest, { recursive: true, force: true });
     }
   }
 
-  // Count after install
   const afterSkills = countItems(join(targetDir, "skills"));
   const afterAgents = countItems(join(targetDir, "agents"));
 
-  // Save version
-  writeFileSync(localVersionFile, remoteVersion.version);
-
-  // Cleanup
   run(`rm -rf "${tarFile}" "${extractDir}"`);
 
   if (mergeOnly) {
     ok(`Merge complete: ${newCount} new items added`);
   } else {
     ok(`Installed: ${afterSkills} skills, ${afterAgents} agents`);
-    if (beforeSkills > 0) {
-      log(`  (was: ${beforeSkills} skills, ${beforeAgents} agents)`);
-    }
+    if (beforeSkills > 0) log(`  (was: ${beforeSkills} skills, ${beforeAgents} agents)`);
   }
 
   return true;
@@ -309,7 +256,7 @@ async function installFromR2(targetDir, mergeOnly) {
 
 // ─── Main ──────────────────────────────────────────────────────
 async function main() {
-  log("\n\ud83d\udd27 Skill Installer\n==================\n");
+  log("\n  Skill Installer\n  ================\n");
 
   // 1. Platform selection
   const platforms = detectPlatforms();
@@ -318,9 +265,7 @@ async function main() {
     const status = p.detected ? "(detected)" : "(not found)";
     log(`  [${i + 1}] ${p.name} ${status}`);
   });
-  if (platforms.length > 1) {
-    log(`  [${platforms.length + 1}] All platforms`);
-  }
+  log(`  [${platforms.length + 1}] All`);
   log("");
 
   const platformChoice = await ask("Choose [1]: ");
@@ -338,19 +283,21 @@ async function main() {
   // 2. Install method
   log("");
   log("Install method:");
-  log("  [1] CK Official (requires gh auth login with CK account)");
-  log("  [2] Private download (access code required)");
-  log("  [3] Private download — merge only (add missing skills)");
+  log("  [1] CK Official        — requires gh auth login with CK account");
+  log("  [2] CK mirror          — access code required, CK skills only");
+  log("  [3] Full skill pack    — access code required, CK + custom skills");
+  log("  [4] Full skill pack    — merge only (add missing, keep existing)");
   log("");
 
-  const methodChoice = await ask("Choose [2]: ");
-  const method = parseInt(methodChoice || "2", 10);
+  const methodChoice = await ask("Choose [3]: ");
+  const method = parseInt(methodChoice || "3", 10);
 
-  // 3. Execute
+  // 3. Execute per target
   for (const target of targets) {
-    log(`\n${"─".repeat(40)}`);
-    log(`Target: ${target.name} (${target.dir})`);
-    log(`${"─".repeat(40)}`);
+    log(`\n${"─".repeat(44)}`);
+    log(`  Target: ${target.name}`);
+    log(`  Path:   ${target.dir}`);
+    log(`${"─".repeat(44)}`);
 
     let success = false;
     switch (method) {
@@ -358,38 +305,38 @@ async function main() {
         success = await installCKOfficial(target.dir);
         break;
       case 2:
-        success = await installFromR2(target.dir, false);
+        success = await installFromWorker(target.dir, "download/ck", false);
         break;
       case 3:
-        success = await installFromR2(target.dir, true);
+        success = await installFromWorker(target.dir, "download/custom", false);
+        break;
+      case 4:
+        success = await installFromWorker(target.dir, "download/custom", true);
         break;
       default:
-        err("Invalid method.");
+        err("Invalid choice.");
     }
 
-    if (!success) {
-      warn(`Failed for ${target.name}`);
-    }
+    if (!success) warn(`Failed for ${target.name}`);
   }
 
   // 4. Summary
-  log(`\n${"═".repeat(40)}`);
+  log(`\n${"═".repeat(44)}`);
   for (const target of targets) {
     const skills = countItems(join(target.dir, "skills"));
     const agents = countItems(join(target.dir, "agents"));
     const rules = countItems(join(target.dir, "rules"));
-    log(`${target.name}: ${skills} skills, ${agents} agents, ${rules} rules`);
+    log(`  ${target.name}: ${skills} skills, ${agents} agents, ${rules} rules`);
   }
   log("");
-  ok("Setup complete!\n");
-  log("To update later, run:");
-  log("  npx dmdfami/skill\n");
+  ok("Setup complete!");
+  log("\n  To update later:  npx dmdfami/skill\n");
 
   rl.close();
 }
 
 main().catch((e) => {
-  console.error(`\u274c Error: ${e.message}`);
+  console.error(`  XX  Error: ${e.message}`);
   rl.close();
   process.exit(1);
 });
