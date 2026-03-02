@@ -14,6 +14,22 @@ const CK_KITS = [
 ];
 const KIT_DIRS = ["agents", "skills", "rules", "hooks", "schemas", "scripts", "output-styles"];
 
+// ─── ANSI Colors ───────────────────────────────────────────────
+const c = {
+  reset: '\x1b[0m',
+  bold: '\x1b[1m',
+  dim: '\x1b[2m',
+  cyan: '\x1b[36m',
+  green: '\x1b[32m',
+  yellow: '\x1b[33m',
+  red: '\x1b[31m',
+  magenta: '\x1b[35m',
+  blue: '\x1b[34m',
+  white: '\x1b[37m',
+  bgCyan: '\x1b[46m',
+  bgBlue: '\x1b[44m',
+};
+
 // ─── Utils ─────────────────────────────────────────────────────
 const rl = createInterface({ input: process.stdin, output: process.stdout });
 const ask = (q) => new Promise((r) => rl.question(q, r));
@@ -26,10 +42,10 @@ const run = (cmd, opts = {}) => {
 };
 
 const log = (msg) => console.log(msg);
-const ok = (msg) => console.log(`  OK  ${msg}`);
-const info = (msg) => console.log(`  >>  ${msg}`);
-const warn = (msg) => console.log(`  !!  ${msg}`);
-const err = (msg) => console.log(`  XX  ${msg}`);
+const ok = (msg) => console.log(`  ${c.green}✓${c.reset} ${msg}`);
+const info = (msg) => console.log(`  ${c.cyan}▸${c.reset} ${msg}`);
+const warn = (msg) => console.log(`  ${c.yellow}⚠${c.reset}  ${msg}`);
+const err = (msg) => console.log(`  ${c.red}✗${c.reset} ${msg}`);
 
 function fetch(url, headers = {}) {
   return new Promise((resolve, reject) => {
@@ -67,7 +83,7 @@ function downloadFile(url, dest, headers = {}) {
       }
       if (res.statusCode !== 200) {
         const chunks = [];
-        res.on("data", (c) => chunks.push(c));
+        res.on("data", (ch) => chunks.push(ch));
         res.on("end", () => reject(new Error(`HTTP ${res.statusCode}: ${Buffer.concat(chunks).toString()}`)));
         return;
       }
@@ -112,7 +128,7 @@ function detectPlatforms() {
 
 async function installCKOfficial(targetDir) {
   log("");
-  info("CK Official Install — requires gh auth login with CK account");
+  info(`CK Official Install ${c.dim}— requires gh auth login with CK account${c.reset}`);
   log("");
 
   const ghVersion = run("gh --version");
@@ -120,7 +136,7 @@ async function installCKOfficial(targetDir) {
     err("GitHub CLI (gh) not found. Install: https://cli.github.com/");
     return false;
   }
-  ok(`GitHub CLI: ${ghVersion.split("\n")[0]}`);
+  ok(`GitHub CLI: ${c.dim}${ghVersion.split("\n")[0]}${c.reset}`);
 
   const ghAuth = run("gh auth status 2>&1");
   if (!ghAuth || ghAuth.includes("not logged")) {
@@ -133,11 +149,11 @@ async function installCKOfficial(targetDir) {
 
   for (const { name: kit, repo } of CK_KITS) {
     log("");
-    info(`Fetching ${kit} kit...`);
+    info(`Fetching ${c.bold}${kit}${c.reset} kit...`);
 
     const tagsRaw = run(`gh api repos/${repo}/tags --jq '.[0].name' 2>/dev/null`);
     const release = tagsRaw || "main";
-    info(`Version: ${release}`);
+    info(`Version: ${c.cyan}${release}${c.reset}`);
 
     const tmpClone = join(tmpdir(), `ck-${kit}-${Date.now()}`);
     run(`gh repo clone ${repo} "${tmpClone}" -- --depth=1 --branch ${release}`, { timeout: 120000 });
@@ -160,7 +176,7 @@ async function installCKOfficial(targetDir) {
     }
 
     run(`rm -rf "${tmpClone}"`);
-    ok(`${kit} kit ${release} (${copied} dirs)`);
+    ok(`${c.bold}${kit}${c.reset} kit ${c.cyan}${release}${c.reset} ${c.dim}(${copied} dirs)${c.reset}`);
   }
 
   return true;
@@ -170,7 +186,7 @@ async function installCKOfficial(targetDir) {
 async function installFromWorker(targetDir, mergeOnly) {
   log("");
 
-  const code = await ask("  Access code: ");
+  const code = await ask(`  ${c.cyan}🔑${c.reset} Access code: `);
   if (!code.trim()) {
     err("Access code required.");
     return false;
@@ -182,7 +198,7 @@ async function installFromWorker(targetDir, mergeOnly) {
     const res = await fetch(`${WORKER_URL}/version/custom`);
     if (res.status === 200) {
       const v = JSON.parse(res.body);
-      log(`  Remote: ${v.sha || "?"} — ${v.message || ""} (${v.updatedAt || ""})`);
+      log(`  ${c.dim}Remote: ${v.sha || "?"} — ${v.message || ""} (${v.updatedAt || ""})${c.reset}`);
     }
   } catch {
     warn("Could not fetch version info — continuing anyway.");
@@ -202,7 +218,7 @@ async function installFromWorker(targetDir, mergeOnly) {
   }
 
   const fileSize = run(`du -h "${tarFile}"`)?.split("\t")[0] || "?";
-  ok(`Downloaded (${fileSize})`);
+  ok(`Downloaded ${c.dim}(${fileSize})${c.reset}`);
 
   // Extract — GitHub tarball has a top-level dir (repo-sha/), strip it
   mkdirSync(targetDir, { recursive: true });
@@ -246,10 +262,10 @@ async function installFromWorker(targetDir, mergeOnly) {
   if (mergeOnly) {
     const addedSkills = afterSkills - beforeSkills;
     const addedAgents = afterAgents - beforeAgents;
-    ok(`Merge: ${beforeSkills} → ${afterSkills} skills (+${addedSkills}), ${beforeAgents} → ${afterAgents} agents (+${addedAgents})`);
+    ok(`Merge: ${beforeSkills} → ${c.green}${afterSkills}${c.reset} skills ${c.dim}(+${addedSkills})${c.reset}, ${beforeAgents} → ${c.green}${afterAgents}${c.reset} agents ${c.dim}(+${addedAgents})${c.reset}`);
   } else {
-    ok(`Installed: ${afterSkills} skills, ${afterAgents} agents`);
-    if (beforeSkills > 0) log(`  (was: ${beforeSkills} skills, ${beforeAgents} agents)`);
+    ok(`Installed: ${c.bold}${afterSkills}${c.reset} skills, ${c.bold}${afterAgents}${c.reset} agents`);
+    if (beforeSkills > 0) log(`  ${c.dim}(was: ${beforeSkills} skills, ${beforeAgents} agents)${c.reset}`);
   }
 
   return true;
@@ -257,19 +273,26 @@ async function installFromWorker(targetDir, mergeOnly) {
 
 // ─── Main ──────────────────────────────────────────────────────
 async function main() {
-  log("\n  Skill Installer\n  ================\n");
+  log("");
+  log(`  ${c.bold}${c.cyan}╔══════════════════════════════════════╗${c.reset}`);
+  log(`  ${c.bold}${c.cyan}║${c.reset}  ${c.bold}⚡ Skill Installer${c.reset}                  ${c.bold}${c.cyan}║${c.reset}`);
+  log(`  ${c.bold}${c.cyan}╚══════════════════════════════════════╝${c.reset}`);
+  log("");
 
   // 1. Platform selection
   const platforms = detectPlatforms();
-  log("Install target:");
+  log(`  ${c.bold}Install target:${c.reset}`);
+  log("");
   platforms.forEach((p, i) => {
-    const status = p.detected ? "(detected)" : "(not found)";
-    log(`  [${i + 1}] ${p.name} ${status}`);
+    const status = p.detected
+      ? `${c.green}● detected${c.reset}`
+      : `${c.dim}○ not found${c.reset}`;
+    log(`  ${c.cyan}${c.bold}[${i + 1}]${c.reset} ${c.bold}${c.white}${p.name}${c.reset}  ${status}`);
   });
-  log(`  [${platforms.length + 1}] All`);
+  log(`  ${c.cyan}${c.bold}[${platforms.length + 1}]${c.reset} ${c.bold}${c.white}All${c.reset}`);
   log("");
 
-  const platformChoice = await ask("Choose [1]: ");
+  const platformChoice = await ask(`  ${c.cyan}❯${c.reset} Choose ${c.dim}[1]${c.reset}: `);
   const pIdx = parseInt(platformChoice || "1", 10) - 1;
 
   let targets;
@@ -283,32 +306,35 @@ async function main() {
 
   // 2. Install method
   log("");
-  log("Install method:");
-  log("  [1] CK Official        — requires gh auth login with CK account");
-  log("  [2] Full skill pack    — access code required, CK + custom skills");
+  log(`  ${c.bold}Install method:${c.reset}`);
+  log("");
+  log(`  ${c.cyan}${c.bold}[1]${c.reset} ${c.bold}${c.white}CK Official${c.reset}      ${c.dim}requires gh auth login with CK account${c.reset}`);
+  log(`  ${c.cyan}${c.bold}[2]${c.reset} ${c.bold}${c.white}Full skill pack${c.reset}  ${c.dim}access code required, CK + custom skills${c.reset}`);
   log("");
 
-  const methodChoice = await ask("Choose [2]: ");
+  const methodChoice = await ask(`  ${c.cyan}❯${c.reset} Choose ${c.dim}[2]${c.reset}: `);
   const method = parseInt(methodChoice || "2", 10);
 
   // 3. Merge mode (for option 2)
   let mergeOnly = false;
   if (method === 2) {
     log("");
-    log("Install mode:");
-    log("  [1] Overwrite all      — replace everything with latest");
-    log("  [2] Merge only         — add missing, keep existing");
+    log(`  ${c.bold}Install mode:${c.reset}`);
     log("");
-    const modeChoice = await ask("Choose [1]: ");
+    log(`  ${c.cyan}${c.bold}[1]${c.reset} ${c.bold}${c.white}Overwrite all${c.reset}  ${c.dim}replace everything with latest${c.reset}`);
+    log(`  ${c.cyan}${c.bold}[2]${c.reset} ${c.bold}${c.white}Merge only${c.reset}     ${c.dim}add missing, keep existing${c.reset}`);
+    log("");
+    const modeChoice = await ask(`  ${c.cyan}❯${c.reset} Choose ${c.dim}[1]${c.reset}: `);
     mergeOnly = parseInt(modeChoice || "1", 10) === 2;
   }
 
   // 4. Execute per target
   for (const target of targets) {
-    log(`\n${"─".repeat(44)}`);
-    log(`  Target: ${target.name}`);
-    log(`  Path:   ${target.dir}`);
-    log(`${"─".repeat(44)}`);
+    log("");
+    log(`  ${c.dim}┌──────────────────────────────────────┐${c.reset}`);
+    log(`  ${c.dim}│${c.reset}  ${c.bold}Target:${c.reset} ${target.name.padEnd(28)}${c.dim}│${c.reset}`);
+    log(`  ${c.dim}│${c.reset}  ${c.bold}Path:${c.reset}   ${c.dim}${target.dir.padEnd(28)}${c.reset}${c.dim}│${c.reset}`);
+    log(`  ${c.dim}└──────────────────────────────────────┘${c.reset}`);
 
     let success = false;
     switch (method) {
@@ -326,22 +352,25 @@ async function main() {
   }
 
   // 5. Summary
-  log(`\n${"═".repeat(44)}`);
+  log("");
+  log(`  ${c.bold}${c.cyan}╔══════════════════════════════════════╗${c.reset}`);
   for (const target of targets) {
     const skills = countItems(join(target.dir, "skills"));
     const agents = countItems(join(target.dir, "agents"));
     const rules = countItems(join(target.dir, "rules"));
-    log(`  ${target.name}: ${skills} skills, ${agents} agents, ${rules} rules`);
+    const line = `${target.name}: ${skills} skills, ${agents} agents, ${rules} rules`;
+    log(`  ${c.bold}${c.cyan}║${c.reset}  ${c.bold}${line.padEnd(36)}${c.reset}${c.bold}${c.cyan}║${c.reset}`);
   }
+  log(`  ${c.bold}${c.cyan}╚══════════════════════════════════════╝${c.reset}`);
   log("");
-  ok("Setup complete!");
-  log("\n  To update later:  npx -y dmdfami/skill\n");
+  ok(`${c.bold}Setup complete!${c.reset}`);
+  log(`\n  ${c.dim}To update later:  npx -y dmdfami/skill${c.reset}\n`);
 
   rl.close();
 }
 
 main().catch((e) => {
-  console.error(`  XX  Error: ${e.message}`);
+  console.error(`  ${c.red}✗${c.reset} Error: ${e.message}`);
   rl.close();
   process.exit(1);
 });
