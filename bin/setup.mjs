@@ -156,7 +156,7 @@ async function installCKOfficial(targetDir) {
     info(`Version: ${c.cyan}${release}${c.reset}`);
 
     const tmpClone = join(tmpdir(), `ck-${kit}-${Date.now()}`);
-    run(`gh repo clone ${repo} "${tmpClone}" -- --depth=1 --branch ${release}`, { timeout: 120000 });
+    run(`gh repo clone ${repo} "${tmpClone}" -- --depth=1 --branch ${release}`, { timeout: 300000 });
 
     if (!existsSync(join(tmpClone, ".claude"))) {
       warn(`${kit} clone failed — check GitHub access.`);
