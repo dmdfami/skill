@@ -1,0 +1,10 @@
+{
+  "name": "dmdfami-skill",
+  "version": "1.0.0",
+  "description": "Install and update AI agent skills for Claude Code and Codex CLI",
+  "bin": {
+    "skill-setup": "./bin/setup.mjs"
+  },
+  "type": "module",
+  "license": "MIT"
+}
