@@ -245,7 +245,9 @@ async function installFromWorker(targetDir, endpoint, mergeOnly) {
   run(`rm -rf "${tarFile}" "${extractDir}"`);
 
   if (mergeOnly) {
-    ok(`Merge complete: ${newCount} new items added`);
+    const addedSkills = afterSkills - beforeSkills;
+    const addedAgents = afterAgents - beforeAgents;
+    ok(`Merge: ${beforeSkills} → ${afterSkills} skills (+${addedSkills}), ${beforeAgents} → ${afterAgents} agents (+${addedAgents})`);
   } else {
     ok(`Installed: ${afterSkills} skills, ${afterAgents} agents`);
     if (beforeSkills > 0) log(`  (was: ${beforeSkills} skills, ${beforeAgents} agents)`);
@@ -338,7 +340,7 @@ async function main() {
   }
   log("");
   ok("Setup complete!");
-  log("\n  To update later:  npx dmdfami/skill\n");
+  log("\n  To update later:  npx -y dmdfami/skill\n");
 
   rl.close();
 }
