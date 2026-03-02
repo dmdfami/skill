@@ -166,8 +166,8 @@ async function installCKOfficial(targetDir) {
   return true;
 }
 
-// Shared download+extract logic for Options 2, 3, 4
-async function installFromWorker(targetDir, endpoint, mergeOnly) {
+// Shared download+extract logic for option 2
+async function installFromWorker(targetDir, mergeOnly) {
   log("");
 
   const code = await ask("  Access code: ");
@@ -177,10 +177,9 @@ async function installFromWorker(targetDir, endpoint, mergeOnly) {
   }
 
   // Check remote version
-  const packName = endpoint.split("/").pop(); // "ck" or "custom"
-  info(`Checking version (${packName})...`);
+  info("Checking version...");
   try {
-    const res = await fetch(`${WORKER_URL}/version/${packName}`);
+    const res = await fetch(`${WORKER_URL}/version/custom`);
     if (res.status === 200) {
       const v = JSON.parse(res.body);
       log(`  Remote: ${v.sha || "?"} — ${v.message || ""} (${v.updatedAt || ""})`);
@@ -194,7 +193,7 @@ async function installFromWorker(targetDir, endpoint, mergeOnly) {
   const tarFile = join(tmpdir(), `skill-${Date.now()}.tar.gz`);
   try {
     await downloadFile(
-      `${WORKER_URL}/${endpoint}?key=${encodeURIComponent(code.trim())}`,
+      `${WORKER_URL}/download/custom?key=${encodeURIComponent(code.trim())}`,
       tarFile,
     );
   } catch (e) {
@@ -286,16 +285,15 @@ async function main() {
   log("");
   log("Install method:");
   log("  [1] CK Official        — requires gh auth login with CK account");
-  log("  [2] CK mirror          — access code required, CK skills only");
-  log("  [3] Full skill pack    — access code required, CK + custom skills");
+  log("  [2] Full skill pack    — access code required, CK + custom skills");
   log("");
 
-  const methodChoice = await ask("Choose [3]: ");
-  const method = parseInt(methodChoice || "3", 10);
+  const methodChoice = await ask("Choose [2]: ");
+  const method = parseInt(methodChoice || "2", 10);
 
-  // 3. Merge mode (for options 2 & 3)
+  // 3. Merge mode (for option 2)
   let mergeOnly = false;
-  if (method === 2 || method === 3) {
+  if (method === 2) {
     log("");
     log("Install mode:");
     log("  [1] Overwrite all      — replace everything with latest");
@@ -318,10 +316,7 @@ async function main() {
         success = await installCKOfficial(target.dir);
         break;
       case 2:
-        success = await installFromWorker(target.dir, "download/ck", mergeOnly);
-        break;
-      case 3:
-        success = await installFromWorker(target.dir, "download/custom", mergeOnly);
+        success = await installFromWorker(target.dir, mergeOnly);
         break;
       default:
         err("Invalid choice.");
@@ -330,7 +325,7 @@ async function main() {
     if (!success) warn(`Failed for ${target.name}`);
   }
 
-  // 4. Summary
+  // 5. Summary
   log(`\n${"═".repeat(44)}`);
   for (const target of targets) {
     const skills = countItems(join(target.dir, "skills"));
